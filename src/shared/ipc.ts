@@ -16,7 +16,9 @@ export const IPC = {
   command: 'assistant:command',
   listenNow: 'assistant:listen-now',
   calibrate: 'assistant:calibrate',
+  diagnostics: 'app:diagnostics',
   synthesize: 'tts:synthesize',
+  transcribe: 'stt:transcribe',
   heard: 'audio:heard',
   audioState: 'audio:state',
   audioError: 'audio:error',
@@ -31,6 +33,12 @@ export type AudioState = 'loading' | 'idle' | 'listening' | 'thinking' | 'speaki
 
 /** Вызовы главного процесса в звуковое окно. */
 export type AudioRpcMethod = 'speak' | 'confirm' | 'chime' | 'stop' | 'pause' | 'reconfigure' | 'listen' | 'calibrate';
+
+export interface DiagnosticResult {
+  name: string;
+  ok: boolean;
+  detail: string;
+}
 
 export interface TestApiResult {
   ok: boolean;
@@ -50,6 +58,8 @@ export interface KetnerApi {
   listenNow(): Promise<void>;
   /** Просит трижды сказать слово активации и возвращает, как его услышало распознавание. */
   calibrateWake(): Promise<string[]>;
+  /** Проверяет, что PowerShell, меню «Пуск», нажатие клавиш и связь с Ketner работают. */
+  runDiagnostics(): Promise<DiagnosticResult[]>;
   startApps(): Promise<string[]>;
   onConfig(cb: (config: PublicConfig) => void): () => void;
   onModelStatus(cb: (status: ModelStatus) => void): () => void;
@@ -58,6 +68,8 @@ export interface KetnerApi {
   // Для звукового окна
   command(text: string): Promise<CommandResult>;
   synthesize(text: string): Promise<ArrayBuffer | null>;
+  /** Расшифровывает запись (16 кГц, моно, float32) через Whisper; `null` — Whisper недоступен. */
+  transcribe(samples: ArrayBuffer): Promise<string | null>;
   heard(text: string, final: boolean): void;
   audioState(state: AudioState): void;
   audioError(text: string): void;

@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { parseWrapped, wrapScript } from './ps-wrap';
 
 export interface PsResult {
   stdout: string;
@@ -6,8 +7,6 @@ export interface PsResult {
   code: number | null;
   timedOut: boolean;
 }
-
-const PRELUDE = "$ErrorActionPreference='Stop';[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;$OutputEncoding=[System.Text.Encoding]::UTF8;";
 
 export const isWindows = process.platform === 'win32';
 
@@ -18,7 +17,7 @@ export function runPowerShell(script: string, timeoutMs = 20_000): Promise<PsRes
       resolve({ stdout: '', stderr: 'Команда доступна только в Windows.', code: 1, timedOut: false });
       return;
     }
-    const encoded = Buffer.from(PRELUDE + script, 'utf16le').toString('base64');
+    const encoded = Buffer.from(wrapScript(script), 'utf16le').toString('base64');
     const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded], {
       windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -34,11 +33,18 @@ export function runPowerShell(script: string, timeoutMs = 20_000): Promise<PsRes
     child.stderr.on('data', (d: Buffer) => (stderr += d.toString('utf8')));
     child.on('error', (err) => {
       clearTimeout(timer);
-      resolve({ stdout, stderr: String(err), code: null, timedOut });
+      resolve({ stdout: '', stderr: String(err), code: null, timedOut });
     });
     child.on('close', (code) => {
       clearTimeout(timer);
-      resolve({ stdout: stdout.trim(), stderr: stderr.trim(), code, timedOut });
+      const parsed = parseWrapped(stdout);
+      if (parsed) {
+        resolve({ stdout: parsed.out, stderr: parsed.err || stderr.trim(), code: parsed.ok ? 0 : 1, timedOut });
+      } else {
+        // Оболочка не дошла до конца: PowerShell не запустился, не уложился во время или упал.
+        const reason = timedOut ? 'PowerShell не ответил вовремя.' : stderr.trim() || stdout.trim() || `PowerShell завершился с кодом ${code}.`;
+        resolve({ stdout: '', stderr: reason, code: code === 0 ? 1 : code, timedOut });
+      }
     });
   });
 }

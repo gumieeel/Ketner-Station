@@ -73,7 +73,7 @@ export class Assistant {
 
       const reply = await this.askModel(text, source);
       await this.say(reply);
-      return { reply, ok: true };
+      return { reply, ok: true, followUp: /\?\s*$/.test(reply) };
     } catch (err) {
       const message = err instanceof LlmError ? err.message : `Что-то пошло не так: ${err instanceof Error ? err.message : String(err)}`;
       this.log('error', message);

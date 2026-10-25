@@ -1,4 +1,4 @@
-import { PIPER_VOICES } from '../../shared/config-defaults';
+import { PIPER_VOICES, WHISPER_MODELS } from '../../shared/config-defaults';
 import type { AppEntry, Config, LogEntry, ModelStatus, PublicConfig, SiteEntry } from '../../shared/types';
 import { Sounds } from '../audio/sounds';
 import { Speaker } from '../audio/speaker';
@@ -94,9 +94,13 @@ function statusPage(): HTMLElement {
     h('p', { class: 'lead' }, 'Скажите «Кетнер», дождитесь сигнала и назовите команду: «открой Яндекс Музыку», «сделай потише», «запусти Discord». Приложение работает в трее и стартует вместе с Windows.'),
     h('div', { class: 'card' }, h('h3', {}, 'Распознавание речи ', badge(models.stt)),
       h('div', { class: 'hint' }, 'Модель Vosk (русский, ~45 МБ). Работает на вашем компьютере, звук с микрофона никуда не отправляется.'),
-      models.progress ? h('div', {}, h('div', { class: 'hint' }, `${models.progress.label}: ${models.progress.percent}%`), bar) : null,
+      models.progress?.kind === 'stt' ? h('div', {}, h('div', { class: 'hint' }, `${models.progress.label}: ${models.progress.percent}%`), bar) : null,
       models.error ? h('div', { class: 'msg bad' }, models.error) : null,
       models.stt === 'ready' ? null : h('div', { class: 'actions' }, h('button', { class: 'btn', disabled: models.stt === 'downloading', onclick: () => void api.downloadModels() }, 'Скачать модель'))),
+    h('div', { class: 'card' }, h('h3', {}, 'Распознавание команд (Whisper) ', badge(models.whisper)),
+      h('div', { class: 'hint' }, 'Точная расшифровка того, что вы сказали после «Кетнер». Работает на вашем компьютере. Модель small занимает ~180 МБ, выбрать другую можно во вкладке «Голос и звук».'),
+      models.progress?.kind === 'whisper' ? h('div', {}, h('div', { class: 'hint' }, `${models.progress.label}: ${models.progress.percent}%`), h('div', { class: 'bar' }, h('div', { style: `width:${models.progress.percent}%` }))) : null,
+      cfg.stt.engine === 'whisper' && models.whisper !== 'ready' ? h('div', { class: 'actions' }, h('button', { class: 'btn', disabled: models.whisper === 'downloading', onclick: () => void api.downloadModels() }, 'Скачать Whisper')) : null),
     h('div', { class: 'card' }, h('h3', {}, 'Голос ассистента ', badge(models.piper)),
       h('div', { class: 'hint' }, 'Синтезатор Piper (~25 МБ) и голос (~60 МБ). Пока он не скачан, ассистент говорит голосом Windows.'),
       h('div', { class: 'actions' }, h('button', { class: 'btn', disabled: models.stt === 'downloading' || models.piper === 'downloading', onclick: () => void api.downloadModels() }, 'Скачать голос'))),
@@ -154,6 +158,12 @@ function voicePage(): HTMLElement {
       numberRow('Ждать команду, сек', cfg.listenTimeoutSec, 2, 60, 1, (v) => apply('listenTimeoutSec', v)),
       numberRow('Продолжать разговор, сек', cfg.followUpSec, 0, 60, 1, (v) => apply('followUpSec', v), 'После ответа ещё столько секунд слушать без слова «Кетнер». 0 — выключено.'),
       textRow('Горячая клавиша «слушать сейчас»', cfg.hotkey, (v) => apply('hotkey', v), 'Формат Electron, например Control+Alt+K. Пусто — отключить. Также прерывает речь ассистента.')),
+    h('div', { class: 'card' },
+      selectRow('Расшифровка команд', [['whisper', 'Whisper — точнее (рекомендуется)'], ['vosk', 'Vosk — быстрее, но много ошибок']], cfg.stt.engine, (v) => apply('stt', { ...cfg.stt, engine: v as Config['stt']['engine'] }),
+        'Слово «Кетнер» всегда ловит Vosk. Сам текст команды Whisper расшифровывает заново и делает это намного точнее, но тратит 1–3 секунды.'),
+      selectRow('Модель Whisper', (Object.entries(WHISPER_MODELS) as Array<[string, { label: string }]>).map(([id, m]): [string, string] => [id, m.label]), cfg.stt.model, (v) => apply('stt', { ...cfg.stt, model: v as Config['stt']['model'] }),
+        'После смены модель докачивается автоматически. Если ответы приходят слишком медленно, возьмите base; если слышит неточно — medium.'),
+      textRow('Подсказка для Whisper (необязательно)', cfg.stt.prompt, (v) => apply('stt', { ...cfg.stt, prompt: v }), 'Слова и названия, которые часто встречаются в ваших командах. Пусто — без подсказки.')),
     h('div', { class: 'card' }, micSelect, outSelect,
       checkRow('Звуковые сигналы', cfg.sounds, (v) => apply('sounds', v)),
       rangeRow('Громкость сигналов', cfg.soundVolume, 0, 1, 0.05, (v) => apply('soundVolume', v)),
@@ -281,7 +291,15 @@ function logPage(): HTMLElement {
     h('h1', {}, 'Журнал и проверка'),
     h('p', { class: 'lead' }, 'Здесь видно, что услышал и сделал ассистент. Команду можно напечатать, чтобы проверить ключ и инструменты без микрофона.'),
     box,
-    h('div', { class: 'actions' }, input, h('button', { class: 'btn', onclick: () => void send() }, 'Выполнить'), h('button', { class: 'btn ghost', onclick: () => void api.listenNow() }, 'Слушать сейчас')));
+    h('div', { class: 'actions' }, input, h('button', { class: 'btn', onclick: () => void send() }, 'Выполнить'), h('button', { class: 'btn ghost', onclick: () => void api.listenNow() }, 'Слушать сейчас')),
+    h('div', { class: 'actions' }, h('button', { class: 'btn ghost', onclick: async (e: Event) => {
+      const btn = e.target as HTMLButtonElement;
+      btn.disabled = true;
+      btn.textContent = 'Проверяю…';
+      await api.runDiagnostics();
+      btn.disabled = false;
+      btn.textContent = 'Проверить функции Windows';
+    } }, 'Проверить функции Windows')));
 }
 
 const PAGES: Array<{ id: string; title: string; render: () => HTMLElement }> = [

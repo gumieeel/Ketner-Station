@@ -8,10 +8,12 @@ import { listStartApps } from './apps';
 import { safeJoin } from './archive';
 import { Assistant } from './assistant';
 import { ConfigStore } from './config';
+import { runDiagnostics } from './diag';
 import { KetnerClient, LlmError } from './llm';
 import { ModelManager } from './models';
 import { AudioRpc } from './rpc';
 import { TimerManager } from './timers';
+import { transcribe } from './stt';
 import { synthesize } from './tts';
 
 const SCHEME = 'ketner';
@@ -205,14 +207,21 @@ async function main(): Promise<void> {
   });
   handle(IPC.modelStatus, () => models.status());
   handle(IPC.downloadModels, async () => {
-    models.refresh(configStore.get().tts.voice);
+    const c = configStore.get();
+    models.refresh(c.tts.voice, c.stt.model);
     await models.ensureStt().catch(() => undefined);
-    if (configStore.get().tts.engine === 'piper') await models.ensurePiper(configStore.get().tts.voice).catch(() => undefined);
+    if (c.stt.engine === 'whisper') await models.ensureWhisper(c.stt.model).catch(() => undefined);
+    if (c.tts.engine === 'piper') await models.ensurePiper(c.tts.voice).catch(() => undefined);
   });
   handle(IPC.getLog, () => assistant.getLog());
   handle(IPC.runText, (text: string): Promise<CommandResult> => assistant.handle(String(text), 'text'));
   handle(IPC.command, (text: string): Promise<CommandResult> => assistant.handle(String(text), 'voice'));
   handle(IPC.listenNow, () => rpc.call('listen'));
+  handle(IPC.diagnostics, async () => {
+    const results = await runDiagnostics(client, Boolean(configStore.getApiKey()));
+    for (const r of results) assistant.log(r.ok ? 'info' : 'error', `Проверка «${r.name}»: ${r.ok ? 'ок' : 'ОШИБКА'} — ${r.detail}`);
+    return results;
+  });
   handle(IPC.calibrate, () => rpc.call<string[]>('calibrate', { count: 3 }, 60_000));
   handle(IPC.startApps, async () => (await listStartApps()).map((a) => a.name).sort((a, b) => a.localeCompare(b, 'ru')));
   handle(IPC.synthesize, async (text: string) => {
@@ -220,6 +229,16 @@ async function main(): Promise<void> {
     if (!models.piperReady(cfg.tts.voice)) return null;
     const wav = await synthesize(String(text), cfg, models);
     return wav.buffer.slice(wav.byteOffset, wav.byteOffset + wav.byteLength);
+  });
+  handle(IPC.transcribe, async (samples: ArrayBuffer) => {
+    const cfg = configStore.get();
+    if (cfg.stt.engine !== 'whisper' || !models.whisperReady(cfg.stt.model)) return null;
+    try {
+      return await transcribe(new Float32Array(samples), cfg, models);
+    } catch (err) {
+      assistant.log('error', `Whisper: ${err instanceof Error ? err.message : String(err)} — использую Vosk.`);
+      return null;
+    }
   });
   ipcMain.on(IPC.heard, (e, payload: { text: string; final: boolean }) => {
     if (trusted(e) && payload.final && configStore.get().debugHeard) assistant.log('info', `Услышано: «${payload.text}»`);
@@ -240,8 +259,9 @@ async function main(): Promise<void> {
     applyConfig(cfg);
     broadcast(IPC.configChanged, configStore.getPublic());
     void rpc.call('reconfigure').catch(() => undefined);
-    models.refresh(cfg.tts.voice);
+    models.refresh(cfg.tts.voice, cfg.stt.model);
     if (cfg.tts.engine === 'piper') void models.ensurePiper(cfg.tts.voice).catch(() => undefined);
+    if (cfg.stt.engine === 'whisper') void models.ensureWhisper(cfg.stt.model).catch(() => undefined);
   });
   models.onStatus((status) => broadcast(IPC.modelStatusChanged, status));
   assistant.onLog((entry) => broadcast(IPC.logEntry, entry));
@@ -259,7 +279,10 @@ async function main(): Promise<void> {
   applyConfig(configStore.get());
   createAudioWindow();
 
-  models.refresh(configStore.get().tts.voice);
+  models.refresh(configStore.get().tts.voice, configStore.get().stt.model);
+  if (configStore.get().stt.engine === 'whisper') {
+    void models.ensureWhisper(configStore.get().stt.model).catch((err) => assistant.log('error', `Whisper: ${err instanceof Error ? err.message : String(err)}`));
+  }
   void models.ensureStt().catch((err) => assistant.log('error', `Модель распознавания: ${err instanceof Error ? err.message : String(err)}`));
   if (configStore.get().tts.engine === 'piper') {
     void models.ensurePiper(configStore.get().tts.voice).catch((err) => assistant.log('error', `Синтезатор речи: ${err instanceof Error ? err.message : String(err)}`));

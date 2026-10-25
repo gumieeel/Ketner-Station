@@ -18,6 +18,7 @@ const api: KetnerApi = {
   runText: (text) => ipcRenderer.invoke(IPC.runText, text),
   listenNow: () => ipcRenderer.invoke(IPC.listenNow),
   calibrateWake: () => ipcRenderer.invoke(IPC.calibrate),
+  runDiagnostics: () => ipcRenderer.invoke(IPC.diagnostics),
   startApps: () => ipcRenderer.invoke(IPC.startApps),
   onConfig: (cb) => subscribe(IPC.configChanged, cb),
   onModelStatus: (cb) => subscribe(IPC.modelStatusChanged, cb),
@@ -25,6 +26,7 @@ const api: KetnerApi = {
 
   command: (text) => ipcRenderer.invoke(IPC.command, text),
   synthesize: (text) => ipcRenderer.invoke(IPC.synthesize, text),
+  transcribe: (samples) => ipcRenderer.invoke(IPC.transcribe, samples),
   heard: (text, final) => ipcRenderer.send(IPC.heard, { text, final }),
   audioState: (state) => ipcRenderer.send(IPC.audioState, state),
   audioError: (text) => ipcRenderer.send(IPC.audioError, text),

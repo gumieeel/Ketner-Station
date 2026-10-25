@@ -13,7 +13,7 @@ export function keyCode(name: string): number | null {
   const key = name.trim().toLowerCase();
   const named = NAMED_KEYS[key];
   if (named !== undefined) return named;
-  if (/^f([1-9]|1[0-2])$/.test(key)) return 0x6f + Number(key.slice(1));
+  if (/^f([1-9]|1[0-9]|2[0-4])$/.test(key)) return 0x6f + Number(key.slice(1));
   if (/^[a-z]$/.test(key)) return key.toUpperCase().charCodeAt(0);
   if (/^[0-9]$/.test(key)) return key.charCodeAt(0);
   return null;

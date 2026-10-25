@@ -1,6 +1,6 @@
 type SinkContext = AudioContext & { setSinkId?: (id: string) => Promise<void> };
 
-export type ChimeKind = 'wake' | 'done' | 'error' | 'timeout';
+export type ChimeKind = 'wake' | 'ack' | 'done' | 'error' | 'timeout';
 
 interface Note {
   freq: number;
@@ -13,6 +13,7 @@ const PATTERNS: Record<ChimeKind, Note[]> = {
     { freq: 660, start: 0, length: 0.09 },
     { freq: 990, start: 0.08, length: 0.14 },
   ],
+  ack: [{ freq: 880, start: 0, length: 0.06 }],
   done: [{ freq: 784, start: 0, length: 0.12 }],
   error: [
     { freq: 392, start: 0, length: 0.12 },

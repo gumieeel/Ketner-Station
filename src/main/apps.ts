@@ -106,7 +106,7 @@ export async function closeApp(query: string, force: boolean): Promise<string> {
   const script = `
 $q = ${q}
 $procs = Get-Process | Where-Object { $_.MainWindowHandle -ne 0 -and (($_.ProcessName.ToLower() -like "*$q*") -or ($_.MainWindowTitle.ToLower() -like "*$q*")) }
-if (-not $procs) { Write-Output 'NONE'; exit 0 }
+if (-not $procs) { return 'NONE' }
 foreach ($p in $procs) { if (${force ? '$true' : '$false'}) { Stop-Process -Id $p.Id -Force } else { [void]$p.CloseMainWindow() } }
 ($procs | ForEach-Object { $_.ProcessName } | Sort-Object -Unique) -join ', '`;
   const r = await runPowerShell(script);

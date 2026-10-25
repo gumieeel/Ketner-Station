@@ -7,6 +7,12 @@ export const PIPER_VOICES = [
   { id: 'ru_RU-ruslan-medium', label: 'Руслан (мужской)' },
 ] as const;
 
+export const WHISPER_MODELS = {
+  base: { file: 'ggml-base-q5_1.bin', label: 'base — быстро, но неточно (~60 МБ)' },
+  small: { file: 'ggml-small-q5_1.bin', label: 'small — хороший баланс (~180 МБ)' },
+  medium: { file: 'ggml-medium-q5_0.bin', label: 'medium — самая точная, медленнее (~540 МБ)' },
+} as const;
+
 export const DEFAULT_CONFIG: Config = {
   wakeWords: ['кетнер', 'кэтнер', 'катнер', 'кетнэр', 'кеттнер', 'кетнера'],
   wakeMinConfidence: 0.5,
@@ -19,6 +25,7 @@ export const DEFAULT_CONFIG: Config = {
   sounds: true,
   soundVolume: 0.5,
   speechVolume: 1,
+  stt: { engine: 'whisper', model: 'small', prompt: '' },
   tts: { engine: 'piper', voice: 'ru_RU-irina-medium', rate: 1 },
   llm: { baseUrl: 'https://ketner.org/v1', model: 'auto', maxSteps: 6, temperature: 0.3 },
   confirm: 'dangerous',
@@ -76,6 +83,11 @@ export function sanitizeConfig(cfg: Config): Config {
     followUpSec: clamp(cfg.followUpSec, 0, 60, d.followUpSec),
     soundVolume: clamp(cfg.soundVolume, 0, 1, d.soundVolume),
     speechVolume: clamp(cfg.speechVolume, 0, 1, d.speechVolume),
+    stt: {
+      engine: cfg.stt.engine === 'vosk' ? 'vosk' : 'whisper',
+      model: cfg.stt.model in WHISPER_MODELS ? cfg.stt.model : d.stt.model,
+      prompt: cfg.stt.prompt.slice(0, 400),
+    },
     tts: {
       engine: cfg.tts.engine === 'windows' ? 'windows' : 'piper',
       voice: PIPER_VOICES.some((v) => v.id === cfg.tts.voice) ? cfg.tts.voice : d.tts.voice,

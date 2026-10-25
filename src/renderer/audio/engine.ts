@@ -2,6 +2,10 @@ import { createModel, type KaldiRecognizer, type Model } from 'vosk-browser';
 import type { RecognizedWord } from '../../shared/voice-session';
 
 const SAMPLE_RATE = 16000;
+const CHUNK = 1600; // 100 мс
+const RING_CHUNKS = 200; // хранить последние 20 секунд
+const PRE_ROLL_CHUNKS = 5; // добавить 0,5 с перед первым словом
+const FALLBACK_CHUNKS = 40; // если начало фразы не поймали: последние 4 с
 
 const WORKLET = `
 class KetnerTap extends AudioWorkletProcessor {
@@ -22,7 +26,8 @@ registerProcessor('ketner-tap', KetnerTap);
 
 export interface EngineHandlers {
   onPartial: (text: string) => void;
-  onFinal: (text: string, words: RecognizedWord[]) => void;
+  /** `audio` — запись именно этой фразы (16 кГц, моно) для повторной расшифровки точной моделью. */
+  onFinal: (text: string, words: RecognizedWord[], audio: Float32Array) => void;
   onEnded: (reason: string) => void;
 }
 
@@ -34,6 +39,9 @@ export class Engine {
   private ctx: AudioContext | null = null;
   private gateOpen = true;
   private running = false;
+  private ring: Float32Array[] = [];
+  private received = 0;
+  private utteranceStart = -1;
 
   constructor(private readonly handlers: EngineHandlers) {}
 
@@ -76,7 +84,11 @@ export class Engine {
     this.newRecognizer();
     this.running = true;
     tap.port.onmessage = (e: MessageEvent<Float32Array>) => {
-      if (this.gateOpen && this.recognizer) this.recognizer.acceptWaveformFloat(e.data, SAMPLE_RATE);
+      if (!this.gateOpen || !this.recognizer) return;
+      this.ring.push(e.data);
+      this.received++;
+      if (this.ring.length > RING_CHUNKS) this.ring.shift();
+      this.recognizer.acceptWaveformFloat(e.data, SAMPLE_RATE);
     };
   }
 
@@ -104,18 +116,36 @@ export class Engine {
     this.model = null;
   }
 
+  /** Склеивает записанные куски текущей фразы в один массив. */
+  private utterance(): Float32Array {
+    const oldest = this.received - this.ring.length; // абсолютный номер первого куска в кольце
+    const wanted = this.utteranceStart >= 0 ? this.utteranceStart : this.received - FALLBACK_CHUNKS;
+    const from = Math.max(0, wanted - oldest);
+    const parts = this.ring.slice(from);
+    const out = new Float32Array(parts.length * CHUNK);
+    parts.forEach((part, i) => out.set(part, i * CHUNK));
+    return out;
+  }
+
   private newRecognizer(): void {
     if (!this.model) return;
     this.recognizer?.remove();
+    this.ring = [];
+    this.received = 0;
+    this.utteranceStart = -1;
     const recognizer = new this.model.KaldiRecognizer(SAMPLE_RATE);
     recognizer.setWords(true);
     recognizer.on('partialresult', (m) => {
-      if (m.event === 'partialresult' && m.result.partial) this.handlers.onPartial(m.result.partial);
+      if (m.event !== 'partialresult' || !m.result.partial) return;
+      if (this.utteranceStart < 0) this.utteranceStart = Math.max(0, this.received - 1 - PRE_ROLL_CHUNKS);
+      this.handlers.onPartial(m.result.partial);
     });
     recognizer.on('result', (m) => {
       if (m.event !== 'result') return;
       const words = (m.result.result ?? []).map((w) => ({ word: w.word, conf: w.conf }));
-      this.handlers.onFinal(m.result.text ?? '', words);
+      const audio = this.utterance();
+      this.utteranceStart = -1;
+      this.handlers.onFinal(m.result.text ?? '', words, audio);
     });
     this.recognizer = recognizer;
   }

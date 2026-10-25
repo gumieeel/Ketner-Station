@@ -7,6 +7,7 @@ describe('parseCombo', () => {
     expect(parseCombo('Win + D')).toEqual([0x5b, 0x44]);
     expect(parseCombo('alt+f4')).toEqual([0x12, 0x73]);
     expect(parseCombo('ctrl+5')).toEqual([0x11, 0x35]);
+    expect(parseCombo('f15')).toEqual([0x7e]);
   });
   it('knows media keys', () => {
     expect(keyCode('playpause')).toBe(0xb3);

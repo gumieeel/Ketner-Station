@@ -1,5 +1,5 @@
 import type { AudioRpcMethod, AudioState } from '../../shared/ipc';
-import type { Answer } from '../../shared/text';
+import { matchWake, type Answer } from '../../shared/text';
 import type { PublicConfig } from '../../shared/types';
 import { VoiceSession, type VoiceEvent } from '../../shared/voice-session';
 import { Engine } from './engine';
@@ -16,6 +16,7 @@ let state: AudioState = 'loading';
 let starting = false;
 let confirmResolver: ((a: Answer) => void) | null = null;
 let restartTimer: ReturnType<typeof setTimeout> | undefined;
+let lastAudio: Float32Array | null = null;
 let calibration: ((heard: string) => void) | null = null;
 
 const sounds = new Sounds();
@@ -59,7 +60,7 @@ function onVoiceEvent(event: VoiceEvent): void {
       setState('idle');
       break;
     case 'command':
-      void runCommand(event.text);
+      void runCommand(event.text, lastAudio);
       break;
     case 'confirm':
       confirmResolver?.(event.answer);
@@ -67,21 +68,44 @@ function onVoiceEvent(event: VoiceEvent): void {
   }
 }
 
-async function runCommand(text: string): Promise<void> {
-  setState('thinking');
+/**
+ * Vosk быстро находит слово «Кетнер» и конец фразы, но команды он расшифровывает с ошибками.
+ * Поэтому ту же запись ещё раз расшифровывает Whisper; при любой неудаче остаётся текст Vosk.
+ */
+async function refine(text: string, audio: Float32Array | null): Promise<string> {
+  if (cfg.stt.engine !== 'whisper' || !audio || audio.length < 4000) return text;
   try {
-    await api.command(text);
+    const better = await api.transcribe(audio.buffer.slice(audio.byteOffset, audio.byteOffset + audio.byteLength) as ArrayBuffer);
+    if (!better) return text;
+    const wake = matchWake(better, cfg.wakeWords);
+    return (wake ? wake.rest : better).trim() || text;
+  } catch {
+    return text;
+  }
+}
+
+async function runCommand(voskText: string, audio: Float32Array | null): Promise<void> {
+  setState('thinking');
+  chime('ack');
+  let followUp = false;
+  try {
+    const text = await refine(voskText, audio);
+    if (cfg.debugHeard && text !== voskText) api.heard(`Whisper: ${text}`, true);
+    followUp = Boolean((await api.command(text)).followUp);
   } catch (err) {
     api.audioError(`Команда не выполнена: ${err instanceof Error ? err.message : String(err)}`);
   } finally {
     session.setIdle();
+    // Ассистент задал вопрос: ответ ждём сразу, без слова «Кетнер».
+    if (followUp && session.state === 'idle') session.startListening();
     setState(idleState());
   }
 }
 
 const engine = new Engine({
   onPartial: (text) => session.onPartial(text),
-  onFinal: (text, words) => {
+  onFinal: (text, words, audio) => {
+    lastAudio = audio;
     if (calibration) {
       calibration(text);
       return;

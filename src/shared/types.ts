@@ -14,6 +14,8 @@ export interface SiteEntry {
 
 export type ConfirmPolicy = 'dangerous' | 'always' | 'never';
 export type TtsEngine = 'piper' | 'windows';
+export type SttEngine = 'whisper' | 'vosk';
+export type WhisperModel = 'base' | 'small' | 'medium';
 
 export interface Config {
   /** Варианты написания слова активации, как его может выдать распознавание. */
@@ -33,6 +35,8 @@ export interface Config {
   sounds: boolean;
   soundVolume: number;
   speechVolume: number;
+  /** Как расшифровывать команду: Whisper точнее, Vosk быстрее. Слово активации всегда ловит Vosk. */
+  stt: { engine: SttEngine; model: WhisperModel; prompt: string };
   tts: { engine: TtsEngine; voice: string; rate: number };
   llm: { baseUrl: string; model: string; maxSteps: number; temperature: number };
   confirm: ConfirmPolicy;
@@ -49,10 +53,13 @@ export interface PublicConfig extends Config {
   hasApiKey: boolean;
 }
 
+export type ModelState = 'missing' | 'downloading' | 'ready' | 'error';
+
 export interface ModelStatus {
-  stt: 'missing' | 'downloading' | 'ready' | 'error';
-  piper: 'missing' | 'downloading' | 'ready' | 'error';
-  progress?: { kind: 'stt' | 'piper'; percent: number; label: string };
+  stt: ModelState;
+  piper: ModelState;
+  whisper: ModelState;
+  progress?: { kind: 'stt' | 'piper' | 'whisper'; percent: number; label: string };
   error?: string;
 }
 
@@ -66,4 +73,6 @@ export interface LogEntry {
 export interface CommandResult {
   reply: string;
   ok: boolean;
+  /** Ответ — вопрос: ассистент продолжает слушать без слова активации. */
+  followUp?: boolean;
 }
