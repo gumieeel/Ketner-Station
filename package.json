@@ -1,6 +1,6 @@
 {
   "name": "ketner-station",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "private": true,
   "description": "Ketner Station — голосовой ассистент для Windows: скажите «Кетнер», и он управляет компьютером.",
   "author": "Ketner",

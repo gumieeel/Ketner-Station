@@ -64,11 +64,24 @@ export class Assistant {
     try {
       const local = matchLocalCommand(text);
       if (local) {
-        const result = await this.execute(local.tool, local.args, source);
-        const ok = !result.startsWith('Ошибка');
-        if (!ok) await this.say(result);
-        else await this.audio.call('chime', { kind: 'done' }).catch(() => undefined);
-        return { reply: ok ? '' : result, ok };
+        let failure: string | null = null;
+        for (const step of local.steps) {
+          const result = await this.execute(step.tool, step.args, source);
+          // Ошибка или «элемент не найден»: дальше идти бессмысленно
+          if (result.startsWith('Ошибка') || result.startsWith('Элемент «') || result.startsWith('Пользователь не подтвердил')) {
+            failure = result;
+            break;
+          }
+        }
+        if (!failure) {
+          await this.audio.call('chime', { kind: 'done' }).catch(() => undefined);
+          return { reply: '', ok: true };
+        }
+        if (!local.fallbackToModel) {
+          await this.say(failure);
+          return { reply: failure, ok: false };
+        }
+        this.log('info', 'Быстрый путь не сработал — передаю команду модели.');
       }
 
       const reply = await this.askModel(text, source);

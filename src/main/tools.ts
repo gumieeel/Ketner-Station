@@ -232,11 +232,23 @@ export const TOOLS: ToolDef[] = [
   {
     name: 'ui_click',
     description:
-      'Нажать кнопку, ссылку или вкладку в активном окне по её названию (достаточно части названия, регистр не важен), например «Моя волна», «Воспроизвести», «Поиск». Работает и на сайтах в браузере. Если страница только что открыта, сначала вызовите wait на 4–6 секунд.',
-    parameters: obj({ text: { type: 'string', description: 'Название элемента на экране' } }, ['text']),
+      'Нажать кнопку, ссылку или вкладку в активном окне по её названию (достаточно части названия, регистр не важен), например «Моя волна», «Воспроизвести», «Поиск». Работает и на сайтах в браузере. Сам ждёт появления элемента (до timeout секунд), поэтому после open_url вызывать wait не нужно.',
+    parameters: obj(
+      {
+        text: { type: 'string', description: 'Название элемента на экране' },
+        alternatives: { type: 'array', items: { type: 'string' }, description: 'Другие возможные названия того же элемента' },
+        timeout: { type: 'number', description: 'Сколько секунд ждать появления элемента (по умолчанию 15)' },
+      },
+      ['text'],
+    ),
     danger: (a) => DANGEROUS_CLICK.test(String(a['text'] ?? '')),
     describe: (a) => `нажать «${String(a['text'])}» на экране`,
-    run: (a) => uiClick(str(a, 'text')),
+    run: (a) =>
+      uiClick(
+        str(a, 'text'),
+        Array.isArray(a['alternatives']) ? a['alternatives'].filter((x): x is string => typeof x === 'string') : [],
+        num(a, 'timeout', 15),
+      ),
   },
   {
     name: 'open_path',

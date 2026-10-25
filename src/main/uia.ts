@@ -54,19 +54,26 @@ foreach ($i in $items) {
 if ($lines.Count -eq 0) { 'EMPTY' } else { $lines -join "\`n" }`;
 }
 
-export function buildClickScript(text: string): string {
-  const q = psQuote(text.toLowerCase());
+export function buildClickScript(texts: string[], timeoutSec = 15): string {
+  const list = texts.map((t) => psQuote(t.toLowerCase())).join(', ');
+  const seconds = Math.max(1, Math.min(30, Math.round(timeoutSec)));
   return `${HEAD}
-$q = ${q}
-$m = @()
-for ($try = 0; $try -lt 3; $try++) {
+$queries = @(${list})
+$deadline = (Get-Date).AddSeconds(${seconds})
+$pick = $null
+do {
   $items = @(Get-UiItems)
-  $m = @($items | Where-Object { $_.Name.ToLowerInvariant().Contains($q) })
-  if ($m.Count -gt 0) { break }
-  Start-Sleep -Milliseconds 1500
-}
-if ($m.Count -eq 0) { 'NOTFOUND'; return }
-$pick = $m | Sort-Object @{ Expression = { if ($_.Name.ToLowerInvariant() -eq $q) { 0 } elseif ($_.Name.ToLowerInvariant().StartsWith($q)) { 1 } else { 2 } } }, @{ Expression = { if ($interactive -contains $_.Type) { 0 } else { 1 } } } | Select-Object -First 1
+  foreach ($q in $queries) {
+    $m = @($items | Where-Object { $_.Name.ToLowerInvariant().Contains($q) })
+    if ($m.Count -gt 0) {
+      $pick = $m | Sort-Object @{ Expression = { if ($_.Name.ToLowerInvariant() -eq $q) { 0 } elseif ($_.Name.ToLowerInvariant().StartsWith($q)) { 1 } else { 2 } } }, @{ Expression = { if ($interactive -contains $_.Type) { 0 } else { 1 } } } | Select-Object -First 1
+      break
+    }
+  }
+  if ($pick) { break }
+  Start-Sleep -Milliseconds 250
+} while ((Get-Date) -lt $deadline)
+if (-not $pick) { 'NOTFOUND'; return }
 try {
   $p = $pick.El.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern)
   $p.Invoke()
@@ -90,8 +97,9 @@ export async function uiList(): Promise<string> {
   return `Элементы активного окна:\n${r.stdout}`;
 }
 
-export async function uiClick(text: string): Promise<string> {
-  const r = await runPowerShell(buildClickScript(text), 40_000);
+/** Нажимает первый подходящий элемент; ждёт его появления до `timeoutSec` секунд (страница может ещё грузиться). */
+export async function uiClick(text: string, alternatives: string[] = [], timeoutSec = 15): Promise<string> {
+  const r = await runPowerShell(buildClickScript([text, ...alternatives], timeoutSec), (Math.min(30, timeoutSec) + 15) * 1000);
   if (r.code !== 0) throw new Error(r.stderr || 'Не удалось нажать элемент.');
   if (r.stdout === 'NOTFOUND') return `Элемент «${text}» не найден в активном окне. Вызовите ui_list, чтобы увидеть доступные кнопки и ссылки.`;
   const m = /^CLICKED:([^:]*):(.*)$/s.exec(r.stdout);
