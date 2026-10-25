@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <!-- Окно без интерфейса. 'unsafe-eval' нужен WebAssembly-движку Vosk (embind); страница не загружает ничего внешнего. -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval' blob:; worker-src blob:; connect-src 'self' blob:; media-src blob: 'self'"
+    />
+    <title>Ketner Station — звук</title>
+  </head>
+  <body>
+    <script src="audio.js"></script>
+  </body>
+</html>

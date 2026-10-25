@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main, 'claude/**']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+  windows-installer:
+    needs: check
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # Программу распознавания собираем сами: у whisper.cpp больше нет готовых Windows-релизов.
+      # Статическая сборка без AVX512/OpenMP: один exe, не требует DLL и Visual C++ Redistributable,
+      # работает на любом процессоре с AVX2 (с 2013 года).
+      - name: Build whisper-cli.exe
+        shell: pwsh
+        run: |
+          git clone --depth 1 --branch v1.9.5 https://github.com/ggml-org/whisper.cpp whisper-src
+          cmake -S whisper-src -B whisper-src/build -DBUILD_SHARED_LIBS=OFF -DCMAKE_POLICY_DEFAULT_CMP0091=NEW -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded -DGGML_NATIVE=OFF -DGGML_AVX2=ON -DGGML_FMA=ON -DGGML_F16C=ON -DGGML_AVX512=OFF -DGGML_OPENMP=OFF -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_SERVER=OFF
+          cmake --build whisper-src/build --config Release --target whisper-cli -j 4
+          New-Item -ItemType Directory -Force resources/whisper | Out-Null
+          Copy-Item whisper-src/build/bin/Release/whisper-cli.exe resources/whisper/whisper-cli.exe
+          Get-ChildItem resources/whisper
+      - run: npm run dist
+        env:
+          NODE_ENV: production
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Ketner-Station-Setup
+          path: release/*.exe
+          if-no-files-found: error
