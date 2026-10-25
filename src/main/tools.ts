@@ -7,6 +7,7 @@ import { mediaControl, mouseClick, mouseScroll, pressCombo, typeText, type Media
 import { parseCombo } from './keys';
 import { isWindows, runNative, runPowerShell } from './powershell';
 import type { TimerManager } from './timers';
+import { uiClick, uiList } from './uia';
 
 export interface ToolContext {
   config: Config;
@@ -74,6 +75,7 @@ export function resolvePath(raw: string): string {
   return path.resolve(raw);
 }
 
+const DANGEROUS_CLICK = /удал|delete|remove|оплат|купить|pay|buy|форматир|format|выключ|shutdown|отправить|send/i;
 const DANGEROUS_COMBO = /(^|\+)(delete|del|f4)(\+|$)/i;
 const truncate = (s: string, n = 1500): string => (s.length > n ? `${s.slice(0, n)}… (обрезано)` : s);
 
@@ -218,6 +220,23 @@ export const TOOLS: ToolDef[] = [
       await pressCombo(combo);
       return 'Готово.';
     },
+  },
+  {
+    name: 'ui_list',
+    description:
+      'Увидеть, что есть в активном окне (в том числе на открытой странице сайта): список кнопок, ссылок, вкладок и полей. Используйте, когда нужно нажать что-то на экране, но точное название неизвестно, или после ui_click с ответом «не найден».',
+    parameters: obj({}),
+    describe: () => 'посмотреть элементы окна',
+    run: () => uiList(),
+  },
+  {
+    name: 'ui_click',
+    description:
+      'Нажать кнопку, ссылку или вкладку в активном окне по её названию (достаточно части названия, регистр не важен), например «Моя волна», «Воспроизвести», «Поиск». Работает и на сайтах в браузере. Если страница только что открыта, сначала вызовите wait на 4–6 секунд.',
+    parameters: obj({ text: { type: 'string', description: 'Название элемента на экране' } }, ['text']),
+    danger: (a) => DANGEROUS_CLICK.test(String(a['text'] ?? '')),
+    describe: (a) => `нажать «${String(a['text'])}» на экране`,
+    run: (a) => uiClick(str(a, 'text')),
   },
   {
     name: 'open_path',

@@ -1,6 +1,7 @@
 import type { DiagnosticResult } from '../shared/ipc';
 import { listStartApps } from './apps';
 import { pressCombo } from './input';
+import { uiList } from './uia';
 import type { KetnerClient } from './llm';
 import { isWindows, runPowerShell } from './powershell';
 
@@ -43,6 +44,13 @@ export async function runDiagnostics(client: Pick<KetnerClient, 'ping'>, hasKey:
     await check('Нажатие клавиш', async () => {
       await pressCombo('f15'); // F15 нигде не используется, но проходит весь путь до системы
       return 'работает';
+    }),
+  );
+  results.push(
+    await check('Видимость элементов окна (UI Automation)', async () => {
+      const text = await uiList();
+      if (!text.startsWith('Элементы')) throw new Error(text);
+      return `видны ${text.split('\n').length - 1} элементов активного окна`;
     }),
   );
   results.push(
