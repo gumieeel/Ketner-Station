@@ -3,3 +3,6 @@ dist/
 release/
 *.log
 .DS_Store
+
+resources/whisper/*.exe
+resources/whisper/*.dll

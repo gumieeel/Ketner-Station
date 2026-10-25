@@ -9,28 +9,7 @@ import { safeJoin, zipToTarGz } from './archive';
 export const VOSK_URL = 'https://alphacephei.com/vosk/models/vosk-model-small-ru-0.22.zip';
 export const PIPER_URL = 'https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_windows_amd64.zip';
 
-const WHISPER_RELEASE_API = 'https://api.github.com/repos/ggml-org/whisper.cpp/releases/latest';
-/** Запасные адреса, если API GitHub недоступен (лимит запросов, фильтры). */
-const WHISPER_FALLBACK_URLS = [
-  'https://github.com/ggml-org/whisper.cpp/releases/download/v1.7.5/whisper-bin-x64.zip',
-  'https://github.com/ggml-org/whisper.cpp/releases/download/v1.7.4/whisper-bin-x64.zip',
-];
-
 export const whisperModelUrl = (model: WhisperModel): string => `https://huggingface.co/ggerganov/whisper.cpp/resolve/main/${WHISPER_MODELS[model].file}`;
-
-async function whisperBinaryUrls(): Promise<string[]> {
-  try {
-    const r = await fetch(WHISPER_RELEASE_API, { headers: { 'User-Agent': 'KetnerStation', Accept: 'application/vnd.github+json' } });
-    if (r.ok) {
-      const data = (await r.json()) as { assets?: Array<{ name: string; browser_download_url: string }> };
-      const asset = data.assets?.find((a) => a.name === 'whisper-bin-x64.zip');
-      if (asset) return [asset.browser_download_url, ...WHISPER_FALLBACK_URLS];
-    }
-  } catch {
-    // пойдём по запасным адресам
-  }
-  return WHISPER_FALLBACK_URLS;
-}
 
 export function piperVoiceUrls(voiceId: string): { onnx: string; json: string } {
   // ru_RU-irina-medium → ru/ru_RU/irina/medium/ru_RU-irina-medium
@@ -152,8 +131,13 @@ export class ModelManager {
     return fs.existsSync(this.piperExe()) && fs.existsSync(this.voiceFile(voiceId)) && fs.existsSync(`${this.voiceFile(voiceId)}.json`);
   }
 
+  /** whisper-cli.exe лежит внутри установщика (его собирает CI); для разработки ищем ещё в папке данных. */
   whisperExe(): string | null {
-    return findFile(this.whisperDir, ['whisper-cli.exe', 'main.exe']);
+    const bundled = app.isPackaged
+      ? path.join(process.resourcesPath, 'resources', 'whisper', 'whisper-cli.exe')
+      : path.join(app.getAppPath(), 'resources', 'whisper', 'whisper-cli.exe');
+    if (fs.existsSync(bundled)) return bundled;
+    return findFile(this.whisperDir, ['whisper-cli.exe']);
   }
 
   whisperModelFile(model: WhisperModel): string {
@@ -260,30 +244,13 @@ export class ModelManager {
     }
     return this.serial(async () => {
       if (this.whisperReady(model)) return;
-      const label = 'Скачивание распознавания команд (Whisper)';
+      const label = 'Скачивание модели Whisper';
       try {
         this.set({ ...this.state, whisper: 'downloading', progress: { kind: 'whisper', percent: 0, label } });
-        if (!this.whisperExe()) {
-          let zip: Uint8Array | null = null;
-          let lastError: unknown;
-          for (const url of await whisperBinaryUrls()) {
-            try {
-              zip = await downloadToBuffer(url, (percent) => this.set({ ...this.state, progress: { kind: 'whisper', percent: Math.round(percent * 0.1), label } }));
-              break;
-            } catch (err) {
-              lastError = err;
-            }
-          }
-          if (!zip) throw lastError instanceof Error ? lastError : new Error('Не удалось скачать программу Whisper.');
-          for (const [name, data] of Object.entries(unzipSync(zip))) {
-            if (name.endsWith('/')) continue;
-            atomicWrite(safeJoin(this.whisperDir, name), data);
-          }
-          if (!this.whisperExe()) throw new Error('В архиве Whisper нет whisper-cli.exe.');
-        }
+        if (!this.whisperExe()) throw new Error('В этой сборке нет программы whisper-cli.exe. Установите свежую версию Ketner Station.');
         if (!fs.existsSync(this.whisperModelFile(model))) {
           await downloadToFile(whisperModelUrl(model), this.whisperModelFile(model), (percent) =>
-            this.set({ ...this.state, progress: { kind: 'whisper', percent: 10 + Math.round(percent * 0.9), label } }),
+            this.set({ ...this.state, progress: { kind: 'whisper', percent: percent, label } }),
           );
         }
         const { progress: _p, error: _e, ...rest } = this.state;

@@ -1,6 +1,6 @@
 {
   "name": "ketner-station",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "description": "Ketner Station — голосовой ассистент для Windows: скажите «Кетнер», и он управляет компьютером.",
   "author": "Ketner",
@@ -48,6 +48,14 @@
         "to": "resources",
         "filter": [
           "*.png"
+        ]
+      },
+      {
+        "from": "resources/whisper",
+        "to": "resources/whisper",
+        "filter": [
+          "**/*",
+          "!.gitkeep"
         ]
       }
     ],
